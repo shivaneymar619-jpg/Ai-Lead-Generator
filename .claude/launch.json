@@ -1,0 +1,25 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Lead Generation API",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"],
+      "port": 8000
+    },
+    {
+      "name": "Lead Generation Agent",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "lead_gen_agent.main"],
+      "port": null,
+      "type": "cli"
+    },
+    {
+      "name": "Expense Chatbot",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["expense_chatbot.py"],
+      "port": null,
+      "type": "cli"
+    }
+  ]
+}
