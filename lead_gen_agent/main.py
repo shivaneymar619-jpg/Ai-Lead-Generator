@@ -67,6 +67,7 @@ def _print_leads_table(leads: list[Lead]) -> None:
     table.add_column("Rank", style="dim", width=4, justify="right")
     table.add_column("Company", min_width=18)
     table.add_column("Industry", min_width=14)
+    table.add_column("Location", min_width=16)
     table.add_column("Score", width=7, justify="center")
     table.add_column("Fit", width=6, justify="center")
     table.add_column("Type", width=12)
@@ -79,6 +80,7 @@ def _print_leads_table(leads: list[Lead]) -> None:
             str(rank),
             f"[link={lead.website}]{lead.company_name}[/link]",
             lead.industry or "-",
+            lead.location or "-",
             score_str,
             lead.fit_percentage,
             _LEAD_TYPE_STYLE.get(lead.lead_type, lead.lead_type),
@@ -103,6 +105,7 @@ def main() -> None:
     parser.add_argument("description", nargs="?", help="Business description string")
     parser.add_argument("--input", "-i", help="Text file with business description")
     parser.add_argument("--output", "-o", help="Output JSON file path")
+    parser.add_argument("--location", "-l", help="Filter leads by location (e.g. 'India', 'Bangalore', 'US')")
     args = parser.parse_args()
 
     if not GROQ_API_KEY:
@@ -122,7 +125,11 @@ def main() -> None:
         console.print("[red]No business description provided.[/red]")
         sys.exit(1)
 
-    console.print(Panel(description, title="[bold]Business Description[/bold]", border_style="bright_black"))
+    location_filter = args.location.strip() if args.location else None
+    panel_text = description
+    if location_filter:
+        panel_text += f"\n[dim]Location filter: {location_filter}[/dim]"
+    console.print(Panel(panel_text, title="[bold]Business Description[/bold]", border_style="bright_black"))
 
     # Determine output path
     if args.output:
@@ -147,7 +154,7 @@ def main() -> None:
             progress.update(task, description=msg)
 
         try:
-            icp, leads = run_pipeline(description, on_step=on_step)
+            icp, leads = run_pipeline(description, location_filter=location_filter, on_step=on_step)
         except Exception as exc:
             console.print(f"\n[bold red]Pipeline error:[/bold red] {exc}")
             sys.exit(1)

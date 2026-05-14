@@ -13,6 +13,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
@@ -297,6 +298,17 @@ _HTML = """<!DOCTYPE html>
       <label for="desc">Describe your business</label>
       <textarea id="desc" rows="3"
         placeholder="e.g. We sell HR software for startups and mid-size companies in India and the US"></textarea>
+      <div style="margin-top:16px">
+        <label for="loc" style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+          <span>Target Location</span>
+          <span style="font-size:.75rem;color:var(--muted);font-weight:400">(optional — e.g. India, Bangalore, US, Europe)</span>
+        </label>
+        <input id="loc" type="text" placeholder="e.g. India  or  New York, US  or  Europe"
+          style="width:100%;border:1.5px solid #ddd8d0;border-radius:10px;padding:11px 14px;
+          font-size:.92rem;font-family:inherit;color:var(--text);background:#faf9f7;
+          transition:border .2s;outline:none"
+          onfocus="this.style.borderColor='var(--purple)'" onblur="this.style.borderColor='#ddd8d0'"/>
+      </div>
       <div class="form-row">
         <button class="btn-pill" id="run-btn" onclick="runAgent()">Generate Leads</button>
         <span id="timer"></span>
@@ -336,7 +348,7 @@ _HTML = """<!DOCTYPE html>
         <div style="overflow-x:auto">
           <table>
             <thead><tr>
-              <th>#</th><th>Company</th><th>Industry</th><th>Score</th>
+              <th>#</th><th>Company</th><th>Industry</th><th>Location</th><th>Score</th>
               <th>Fit</th><th>Type</th><th>Email</th><th>Reason</th>
             </tr></thead>
             <tbody id="leads-body"></tbody>
@@ -365,6 +377,7 @@ function log(msg){
 function runAgent(){
   const desc=document.getElementById('desc').value.trim();
   if(!desc){alert('Please enter a business description.');return;}
+  const loc=(document.getElementById('loc').value||'').trim();
   document.getElementById('run-btn').disabled=true;
   document.getElementById('error-box').style.display='none';
   document.getElementById('progress-box').style.display='block';
@@ -373,7 +386,9 @@ function runAgent(){
   document.getElementById('log').innerHTML='';
   startTimer();
 
-  const es=new EventSource(`/stream?q=${encodeURIComponent(desc)}`);
+  let url=`/stream?q=${encodeURIComponent(desc)}`;
+  if(loc) url+=`&loc=${encodeURIComponent(loc)}`;
+  const es=new EventSource(url);
   es.onmessage=(e)=>{
     const msg=JSON.parse(e.data);
     if(msg.type==='progress'){log(msg.msg);}
@@ -421,11 +436,17 @@ function renderLeads(leads){
      <span class="avg-tag">avg score ${avg}</span>`;
   document.getElementById('leads-body').innerHTML=leads.map((l,i)=>{
     const t=tc(l.lead_type);
+    const loc=l.location&&l.location!=='Unknown'
+      ?`<span style="display:inline-flex;align-items:center;gap:4px;font-size:.8rem;color:var(--muted)">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+          ${escHtml(l.location)}</span>`
+      :'<span style="color:#ccc">—</span>';
     return `<tr class="${t}">
       <td style="text-align:center;font-weight:700;color:var(--muted)">${i+1}</td>
       <td><a class="site" href="${escHtml(l.website)}" target="_blank">${escHtml(l.company_name)}</a>
           <div style="font-size:.74rem;color:#b0aac0;margin-top:2px">${escHtml(l.website)}</div></td>
       <td>${escHtml(l.industry||'')}</td>
+      <td>${loc}</td>
       <td class="score ${t}">${l.lead_score}</td>
       <td style="text-align:center;font-weight:600">${escHtml(l.fit_percentage)}</td>
       <td><span class="type-pill ${t}">${escHtml(l.lead_type)}</span></td>
@@ -441,7 +462,7 @@ function downloadJSON(){
   const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='leads.json';a.click();
 }
 function downloadCSV(){
-  const cols=['company_name','website','industry','description','contact_email','lead_score','fit_percentage','lead_type','reason'];
+  const cols=['company_name','website','industry','location','description','contact_email','lead_score','fit_percentage','lead_type','reason'];
   const rows=[cols.join(','),..._leads.map(l=>cols.map(c=>`"${(l[c]||'').toString().replace(/"/g,'""')}"`).join(','))];
   const b=new Blob([rows.join('\\n')],{type:'text/csv'});
   const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='leads.csv';a.click();
@@ -464,10 +485,12 @@ async def health():
 
 
 @app.get("/stream")
-async def stream_leads(q: str):
+async def stream_leads(q: str, loc: Optional[str] = None):
     """SSE endpoint — streams pipeline progress then final results."""
     if not q or not q.strip():
         raise HTTPException(status_code=400, detail="Query parameter 'q' is required.")
+
+    location_filter = loc.strip() if loc and loc.strip() else None
 
     async def event_generator():
         loop = asyncio.get_event_loop()
@@ -480,7 +503,7 @@ async def stream_leads(q: str):
             try:
                 icp, leads = await loop.run_in_executor(
                     _executor,
-                    lambda: run_pipeline(q.strip(), on_step=on_step),
+                    lambda: run_pipeline(q.strip(), location_filter=location_filter, on_step=on_step),
                 )
                 await queue.put({
                     "type": "result",

@@ -34,6 +34,7 @@ class Lead(BaseModel):
     company_name: str
     website: str
     industry: str = ""
+    location: str = ""          # city, country or region
     description: str = ""
     contact_email: str = ""
     lead_score: int = Field(ge=0, le=100)

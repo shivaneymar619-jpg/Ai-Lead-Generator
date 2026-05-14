@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json
 from groq import Groq
-from typing import List
+from typing import List, Optional
 from .config import GROQ_API_KEY, GROQ_MODEL
 from .models import Company, ICP, Lead, LeadType
 
@@ -21,6 +21,10 @@ lead_type mapping:
   Warm  -> score 40-69
   Cold  -> score 0-39
 
+For the "location" field, infer the company's city and country from the page text, website domain,
+or any geographic clues. Format as "City, Country" (e.g. "Bangalore, India" or "New York, US").
+If unknown, return "Unknown".
+
 Return a JSON array only - no prose, no markdown fences."""
 
 _COMPANY_TEMPLATE = """Company #{i}
@@ -34,6 +38,7 @@ _LEAD_SCHEMA = """{
   "company_name": "...",
   "website": "...",
   "industry": "...",
+  "location": "City, Country",
   "description": "one sentence about the company",
   "contact_email": "...",
   "lead_score": 0-100,
@@ -43,7 +48,11 @@ _LEAD_SCHEMA = """{
 }"""
 
 
-def score_leads(companies: List[Company], icp: ICP) -> List[Lead]:
+def score_leads(
+    companies: List[Company],
+    icp: ICP,
+    location_filter: Optional[str] = None,
+) -> List[Lead]:
     if not companies:
         return []
 
@@ -58,6 +67,14 @@ def score_leads(companies: List[Company], icp: ICP) -> List[Lead]:
         f"ICP Summary: {icp.description}"
     )
 
+    location_note = ""
+    if location_filter:
+        location_note = (
+            f"\nIMPORTANT: The user wants leads specifically from '{location_filter}'. "
+            f"Companies outside this location should receive significantly lower scores "
+            f"(deduct 30-40 points) unless the location cannot be determined.\n"
+        )
+
     companies_block = "\n".join(
         _COMPANY_TEMPLATE.format(
             i=i + 1,
@@ -70,7 +87,7 @@ def score_leads(companies: List[Company], icp: ICP) -> List[Lead]:
     )
 
     prompt = (
-        f"## ICP\n{icp_block}\n\n"
+        f"## ICP\n{icp_block}\n{location_note}\n"
         f"## Companies to score\n{companies_block}\n\n"
         f"Return a JSON array with one object per company using this schema:\n{_LEAD_SCHEMA}\n\n"
         f"Preserve the original contact_email from company data where available. "
@@ -101,6 +118,9 @@ def score_leads(companies: List[Company], icp: ICP) -> List[Lead]:
             item["contact_email"] = company.contact_email
         if not item.get("contact_email"):
             item["contact_email"] = ""
+
+        if not item.get("location"):
+            item["location"] = "Unknown"
 
         item["lead_score"] = max(0, min(100, int(item.get("lead_score", 0))))
         score = item["lead_score"]

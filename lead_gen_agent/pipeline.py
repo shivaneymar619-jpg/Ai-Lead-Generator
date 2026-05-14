@@ -10,10 +10,12 @@ from .scorer import score_leads
 
 def run_pipeline(
     business_description: str,
+    location_filter: Optional[str] = None,
     on_step: Optional[Callable[[str], None]] = None,
 ) -> tuple[ICP, List[Lead]]:
     """
     Full pipeline: description → ICP → search → scrape → score → leads.
+    `location_filter` biases scoring toward a specific city/country.
     `on_step` is an optional callback for progress reporting.
     Returns (icp, sorted_leads).
     """
@@ -34,8 +36,9 @@ def run_pipeline(
     scraped_ok = sum(1 for c in companies if not c.scrape_error)
     _step(f"Scraped {scraped_ok}/{len(companies)} sites successfully.")
 
-    _step("Scoring and ranking leads with Claude...")
-    leads: List[Lead] = score_leads(companies, icp)
+    loc_msg = f" (filtering for: {location_filter})" if location_filter else ""
+    _step(f"Scoring and ranking leads{loc_msg}...")
+    leads: List[Lead] = score_leads(companies, icp, location_filter=location_filter)
 
     leads.sort(key=lambda l: l.lead_score, reverse=True)
     _step(f"Done. Ranked {len(leads)} leads.")
